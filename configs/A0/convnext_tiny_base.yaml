@@ -1,0 +1,35 @@
+model:
+  name: convnext_tiny
+  num_classes: 7
+  pretrained: true
+
+training:
+  epochs: 300
+  seed: 42
+
+optimizer:
+  name: adamw
+  lr: 0.0001
+  weight_decay: 0.01
+
+scheduler:
+  name: cosine
+
+augmentation:
+  horizontal_flip: true
+  vertical_flip: true
+  resize_before_crop: 236
+  rotation_degrees: 20
+  crop_size: 224
+
+loss:
+  name: cross_entropy
+
+checkpoint:
+  monitor: macro_f1
+  mode: max
+
+training:
+  epochs: 300
+  seed: 42
+  amp: true
