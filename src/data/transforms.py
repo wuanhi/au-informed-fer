@@ -1,53 +1,78 @@
+import torch
 from torchvision import transforms
-from torchvision.models import ConvNeXt_Tiny_Weights
 
 
-def get_train_transform(image_size, augmentation_cfg):
-    weights = ConvNeXt_Tiny_Weights.IMAGENET1K_V1
-    mean = weights.transforms().mean
-    std = weights.transforms().std
-
-    transform_list = [
-        transforms.Grayscale(num_output_channels=3)
-    ]
-
-    if augmentation_cfg.get("random_crop", False):
-        scale = augmentation_cfg.get("crop_scale", [0.8, 1.0])
-
-        transform_list.append(
-            transforms.RandomResizedCrop(
-                size=image_size,
-                scale=tuple(scale)
-            )
-        )
-    else:
-        transform_list.append(
-            transforms.Resize((image_size, image_size))
-        )
-
-    if augmentation_cfg.get("random_rotation", False):
-        degrees = augmentation_cfg.get("rotation_degrees", 10)
-
-        transform_list.append(
-            transforms.RandomRotation(degrees=degrees)
-        )
-
-    transform_list.extend([
-        transforms.ToTensor(),
-        transforms.Normalize(mean=mean, std=std)
-    ])
-
-    return transforms.Compose(transform_list)
+def get_train_transform(
+    image_size,
+    augmentation_cfg,
+):
+    return transforms.Compose(
+        [
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomVerticalFlip(),
+            transforms.Grayscale(),
+            transforms.Resize(
+                augmentation_cfg["resize_before_crop"]
+            ),
+            transforms.RandomRotation(
+                degrees=augmentation_cfg[
+                    "rotation_degrees"
+                ]
+            ),
+            transforms.RandomCrop(image_size),
+            transforms.ToTensor(),
+            transforms.Lambda(
+                lambda x: x.repeat(3, 1, 1)
+            ),
+        ]
+    )
 
 
-def get_val_transform(image_size):
-    weights = ConvNeXt_Tiny_Weights.IMAGENET1K_V1
-    mean = weights.transforms().mean
-    std = weights.transforms().std
+def get_val_transform(
+    image_size,
+    augmentation_cfg,
+):
+    return transforms.Compose(
+        [
+            transforms.Grayscale(),
+            transforms.Resize(
+                augmentation_cfg["resize_before_crop"]
+            ),
+            transforms.RandomCrop(image_size),
+            transforms.ToTensor(),
+            transforms.Lambda(
+                lambda x: x.repeat(3, 1, 1)
+            ),
+        ]
+    )
 
-    return transforms.Compose([
-        transforms.Grayscale(num_output_channels=3),
-        transforms.Resize((image_size, image_size)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=mean, std=std)
-    ])
+
+def get_test_transform(
+    image_size,
+    augmentation_cfg,
+):
+    return transforms.Compose(
+        [
+            transforms.Grayscale(),
+            transforms.Resize(
+                augmentation_cfg["resize_before_crop"]
+            ),
+            transforms.TenCrop(image_size),
+            transforms.Lambda(
+                lambda crops: torch.stack(
+                    [
+                        transforms.ToTensor()(crop)
+                        for crop in crops
+                    ]
+                )
+            ),
+            transforms.Lambda(
+                lambda crops: torch.stack(
+                    [
+                        crop.repeat(3, 1, 1)
+                        for crop in crops
+                    ]
+                )
+            ),
+        ]
+    )

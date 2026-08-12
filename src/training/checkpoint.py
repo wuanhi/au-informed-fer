@@ -1,4 +1,5 @@
 from pathlib import Path
+
 import torch
 
 
@@ -6,54 +7,91 @@ def save_checkpoint(
     path,
     model,
     optimizer,
+    ema,
+    scaler,
     scheduler,
-    epoch,
     best_metric,
-    config=None
+    epoch=None,
+    config=None,
 ):
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+
+    path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
     checkpoint = {
-        "epoch": epoch,
-        "model_state_dict": model.state_dict(),
-        "optimizer_state_dict": optimizer.state_dict(),
-        "scheduler_state_dict": scheduler.state_dict()
-        if scheduler is not None else None,
-        "best_metric": best_metric,
-        "config": config,
+        "model": model.state_dict(),
+        "opt": optimizer.state_dict(),
+        "ema": ema.state_dict(),
+        "scaler": scaler.state_dict(),
+        "scheduler": scheduler.state_dict(),
+        "best_acc": best_metric,
     }
 
-    torch.save(checkpoint, path)
+    # Metadata của project,
+    # không tham gia optimization.
+    if epoch is not None:
+        checkpoint["epoch"] = epoch
+
+    if config is not None:
+        checkpoint["config"] = config
+
+    torch.save(
+        checkpoint,
+        path,
+    )
 
 
 def load_checkpoint(
     path,
     model,
     optimizer=None,
+    ema=None,
+    scaler=None,
     scheduler=None,
-    device="cpu"
+    device="cpu",
 ):
     checkpoint = torch.load(
         path,
-        map_location=device
+        map_location=device,
     )
 
     model.load_state_dict(
-        checkpoint["model_state_dict"]
+        checkpoint["model"]
     )
 
-    if optimizer is not None:
+    if (
+        optimizer is not None
+        and "opt" in checkpoint
+    ):
         optimizer.load_state_dict(
-            checkpoint["optimizer_state_dict"]
+            checkpoint["opt"]
+        )
+
+    if (
+        ema is not None
+        and "ema" in checkpoint
+    ):
+        ema.load_state_dict(
+            checkpoint["ema"]
+        )
+
+    if (
+        scaler is not None
+        and "scaler" in checkpoint
+    ):
+        scaler.load_state_dict(
+            checkpoint["scaler"]
         )
 
     if (
         scheduler is not None
-        and checkpoint["scheduler_state_dict"] is not None
+        and "scheduler" in checkpoint
     ):
         scheduler.load_state_dict(
-            checkpoint["scheduler_state_dict"]
+            checkpoint["scheduler"]
         )
 
     return checkpoint

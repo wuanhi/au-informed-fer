@@ -1,70 +1,137 @@
+import numpy as np
 import torch
+
 from tqdm import tqdm
 
-from evaluation.metrics import compute_metrics
+from src.evaluation.metrics import compute_metrics
 
 
 def train_one_epoch(
     model,
     dataloader,
-    loss_fn,
     optimizer,
+    scheduler,
+    loss_fn,
     device,
     scaler,
-    use_amp=True
+    ema,
+    use_amp,
+    gradient_clip,
+    gradient_accumulation_steps=1,
 ):
     model.train()
 
-    running_loss = 0.0
+    amp_enabled = (
+        use_amp
+        and device.type == "cuda"
+    )
+
+    batch_losses = []
+    batch_accuracies = []
+
     all_targets = []
     all_predictions = []
 
-    amp_enabled = use_amp and device.type == "cuda"
-
-    progress_bar = tqdm(
+    pbar = tqdm(
         dataloader,
         desc="Training",
-        leave=False
     )
 
-    for images, targets in progress_bar:
-        images = images.to(device, non_blocking=True)
-        targets = targets.to(device, non_blocking=True)
+    for batch_idx, (
+        inputs,
+        labels,
+    ) in enumerate(pbar):
+        inputs = inputs.to(device)
+        labels = labels.to(device)
 
-        optimizer.zero_grad(set_to_none=True)
+        with torch.amp.autocast(
+            device_type=device.type,
+            enabled=amp_enabled,
+        ):
+            logits = model(inputs)
 
-        with torch.cuda.amp.autocast(device_type=device.type, enabled=amp_enabled):
-            logits = model(images)
-            loss = loss_fn(logits, targets)
+            loss = loss_fn(
+                logits,
+                labels,
+            )
+
+        predictions = torch.argmax(
+            logits,
+            dim=1,
+        )
 
         scaler.scale(loss).backward()
-        scaler.step(optimizer)
-        scaler.update()
 
-        running_loss += loss.item() * images.size(0)
+        if (
+            batch_idx + 1
+        ) % gradient_accumulation_steps == 0:
 
-        predictions = logits.argmax(dim=1)
+            # Match EmoNeXt source order exactly.
+            torch.nn.utils.clip_grad_norm_(
+                model.parameters(),
+                gradient_clip,
+            )
+
+            scaler.step(optimizer)
+
+            optimizer.zero_grad(
+                set_to_none=True
+            )
+
+            scaler.update()
+
+            ema.update()
+
+            # IMPORTANT:
+            # scheduler is stepped per optimizer update.
+            scheduler.step()
+
+        batch_accuracy = (
+            predictions == labels
+        ).sum().item() / labels.size(0)
+
+        batch_losses.append(
+            loss.item()
+        )
+
+        batch_accuracies.append(
+            batch_accuracy
+        )
 
         all_targets.extend(
-            targets.detach().cpu().tolist()
+            labels.detach().cpu().tolist()
         )
 
         all_predictions.extend(
             predictions.detach().cpu().tolist()
         )
 
-        progress_bar.set_postfix(
-            loss=f"{loss.item():.4f}"
+        pbar.set_postfix(
+            {
+                "loss": np.mean(
+                    batch_losses
+                ),
+                "acc": np.mean(
+                    batch_accuracies
+                )
+                * 100.0,
+            }
         )
-
-    epoch_loss = running_loss / len(dataloader.dataset)
 
     metrics = compute_metrics(
         all_targets,
-        all_predictions
+        all_predictions,
     )
 
-    metrics["loss"] = epoch_loss
+    # EmoNeXt source averages batch losses
+    # and batch accuracies.
+    metrics["loss"] = float(
+        np.mean(batch_losses)
+    )
+
+    metrics["accuracy"] = float(
+        np.mean(batch_accuracies)
+    )
 
     return metrics
 
@@ -75,49 +142,136 @@ def evaluate_one_epoch(
     dataloader,
     loss_fn,
     device,
-    use_amp=True
+    use_amp,
 ):
     model.eval()
 
-    running_loss = 0.0
+    amp_enabled = (
+        use_amp
+        and device.type == "cuda"
+    )
+
+    batch_losses = []
+
     all_targets = []
     all_predictions = []
 
-    amp_enabled = use_amp and device.type == "cuda"
-
-    progress_bar = tqdm(
+    pbar = tqdm(
         dataloader,
         desc="Validation",
-        leave=False
     )
 
-    for images, targets in progress_bar:
-        images = images.to(device, non_blocking=True)
-        targets = targets.to(device, non_blocking=True)
+    for inputs, labels in pbar:
+        inputs = inputs.to(device)
+        labels = labels.to(device)
 
-        with torch.cuda.amp.autocast(enabled=amp_enabled):
-            logits = model(images)
-            loss = loss_fn(logits, targets)
+        with torch.amp.autocast(
+            device_type=device.type,
+            enabled=amp_enabled,
+        ):
+            logits = model(inputs)
 
-        running_loss += loss.item() * images.size(0)
+            loss = loss_fn(
+                logits,
+                labels,
+            )
 
-        predictions = logits.argmax(dim=1)
+        predictions = torch.argmax(
+            logits,
+            dim=1,
+        )
+
+        batch_losses.append(
+            loss.item()
+        )
 
         all_targets.extend(
-            targets.cpu().tolist()
+            labels.cpu().tolist()
         )
 
         all_predictions.extend(
             predictions.cpu().tolist()
         )
 
-    epoch_loss = running_loss / len(dataloader.dataset)
-
     metrics = compute_metrics(
         all_targets,
-        all_predictions
+        all_predictions,
     )
 
-    metrics["loss"] = epoch_loss
+    metrics["loss"] = float(
+        np.mean(batch_losses)
+    )
 
     return metrics
+
+
+@torch.no_grad()
+def evaluate_test_ema(
+    ema,
+    dataloader,
+    device,
+    use_amp,
+):
+    ema.eval()
+
+    amp_enabled = (
+        use_amp
+        and device.type == "cuda"
+    )
+
+    all_targets = []
+    all_predictions = []
+
+    pbar = tqdm(
+        dataloader,
+        desc="Testing",
+    )
+
+    for inputs, labels in pbar:
+        # TenCrop:
+        # [B, 10, C, H, W]
+        bs, ncrops, c, h, w = (
+            inputs.shape
+        )
+
+        inputs = inputs.view(
+            -1,
+            c,
+            h,
+            w,
+        )
+
+        inputs = inputs.to(device)
+        labels = labels.to(device)
+
+        with torch.amp.autocast(
+            device_type=device.type,
+            enabled=amp_enabled,
+        ):
+            logits = ema(inputs)
+
+        logits = logits.view(
+            bs,
+            ncrops,
+            -1,
+        )
+
+        outputs_avg = logits.mean(1)
+
+        predictions = torch.argmax(
+            outputs_avg,
+            dim=1,
+        )
+
+        all_targets.extend(
+            labels.cpu().tolist()
+        )
+
+        all_predictions.extend(
+            predictions.cpu().tolist()
+        )
+
+    return compute_metrics(
+        all_targets,
+        all_predictions,
+    )

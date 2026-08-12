@@ -7,3 +7,4 @@ matplotlib
 Pillow
 PyYAML
 tqdm
+ema-pytorch

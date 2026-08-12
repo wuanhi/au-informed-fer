@@ -11,5 +11,7 @@ image:
   size: 224
 
 dataloader:
-  batch_size: 64
+  train_batch_size: 64
+  val_batch_size: 1
+  test_batch_size: 32
   num_workers: 0
