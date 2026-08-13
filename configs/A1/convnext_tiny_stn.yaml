@@ -1,5 +1,5 @@
 model:
-  name: convnext_tiny
+  name: stn_convnext_tiny
   num_classes: 7
   pretrained: true
   pretrained_source: imagenet22k
@@ -42,3 +42,8 @@ loss:
 checkpoint:
   monitor: accuracy
   mode: max
+
+stn:
+  enabled: true
+  align_corners: true
+  identity_init: true

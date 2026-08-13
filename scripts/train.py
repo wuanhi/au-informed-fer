@@ -20,7 +20,8 @@ if str(ROOT) not in sys.path:
 from src.utils.config import load_config
 from src.utils.seed import set_seed
 from src.utils.logger import append_epoch_log
-
+from src.models.convnext_backbone import build_convnext_tiny
+from src.models.convnext_stn import build_stn_convnext_tiny
 from src.data.dataloader import (
     build_dataloaders,
 )
@@ -51,6 +52,30 @@ from src.training.checkpoint import (
     save_checkpoint,
 )
 
+def build_model(model_cfg):
+    name = model_cfg["name"]
+
+    if name == "convnext_tiny":
+        return build_convnext_tiny(
+            num_classes=model_cfg["num_classes"],
+            pretrained=model_cfg["pretrained"],
+            drop_path_rate=model_cfg[
+                "drop_path_rate"
+            ],
+        )
+
+    if name == "stn_convnext_tiny":
+        return build_stn_convnext_tiny(
+            num_classes=model_cfg["num_classes"],
+            pretrained=model_cfg["pretrained"],
+            drop_path_rate=model_cfg[
+                "drop_path_rate"
+            ],
+        )
+
+    raise ValueError(
+        f"Unsupported model: {name}"
+    )
 
 def main():
     parser = argparse.ArgumentParser()
@@ -118,19 +143,10 @@ def main():
         f"Test:  {len(test_loader.dataset)}"
     )
 
-    model = build_convnext_tiny(
-        num_classes=cfg["model"][
-            "num_classes"
-        ],
-        pretrained=cfg["model"][
-            "pretrained"
-        ],
-        drop_path_rate=cfg["model"][
-            "drop_path_rate"
-        ],
-    )
+    model = build_model(
+        cfg["model"]
+    ).to(device)
 
-    model = model.to(device)
 
     loss_fn = (
         build_classification_loss(

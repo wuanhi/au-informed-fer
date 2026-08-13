@@ -16,18 +16,31 @@ from src.training.checkpoint import load_checkpoint
 from src.training.trainer import evaluate_test_ema
 from src.utils.config import load_config
 from src.utils.seed import set_seed
-
+from src.models.convnext_stn import build_stn_convnext_tiny
 
 def build_model(model_cfg):
-    if model_cfg["name"] == "convnext_tiny":
+    name = model_cfg["name"]
+
+    if name == "convnext_tiny":
         return build_convnext_tiny(
             num_classes=model_cfg["num_classes"],
             pretrained=False,
-            drop_path_rate=model_cfg["drop_path_rate"],
+            drop_path_rate=model_cfg[
+                "drop_path_rate"
+            ],
+        )
+
+    if name == "stn_convnext_tiny":
+        return build_stn_convnext_tiny(
+            num_classes=model_cfg["num_classes"],
+            pretrained=False,
+            drop_path_rate=model_cfg[
+                "drop_path_rate"
+            ],
         )
 
     raise ValueError(
-        f"Unsupported model: {model_cfg['name']}"
+        f"Unsupported model: {name}"
     )
 
 
