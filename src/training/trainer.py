@@ -66,7 +66,12 @@ def train_one_epoch(
             batch_idx + 1
         ) % gradient_accumulation_steps == 0:
 
-            # Match EmoNeXt source order exactly.
+            # AMP scales gradients before backward;
+            # unscale before clipping so max_norm is real.
+            scaler.unscale_(
+                optimizer
+            )
+
             torch.nn.utils.clip_grad_norm_(
                 model.parameters(),
                 gradient_clip,
