@@ -20,7 +20,6 @@ if str(ROOT) not in sys.path:
 from src.utils.config import load_config
 from src.utils.seed import set_seed
 from src.utils.logger import append_epoch_log
-from src.models.convnext_backbone import build_convnext_tiny
 from src.models.convnext_stn import build_stn_convnext_tiny
 from src.data.dataloader import (
     build_dataloaders,
