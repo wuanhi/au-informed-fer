@@ -45,7 +45,7 @@ class STNConvNeXtTiny(nn.Module):
         """
         Diagnostic helper for post-training A1 analysis.
         """
-
+        
         return self.stn.forward_with_theta(x)
 
     def get_sampling_grid(self, x):
